@@ -127,7 +127,8 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
-    if: ${{ (github.event_name != 'push' || !startsWith(github.event.head_commit.message, '[skip ci]')) && (github.ref == 'refs/heads/master' || github.event_name == 'pull_request') }}
+    # 支持 master 或 main 分支
+    if: ${{ (github.event_name != 'push' || !startsWith(github.event.head_commit.message, '[skip ci]')) && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' || github.event_name == 'pull_request') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -142,8 +143,9 @@ jobs:
           java-version: 17
           cache: gradle
 
+      # 只有配置了 KEYSTORE_B64 才会去解码
       - name: Decode keystore
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: ${{ (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && secrets.KEYSTORE_B64 != '' }}
         run: |
           mkdir -p app
           echo "$KEYSTORE_B64" | base64 -d > app/neri.jks
@@ -153,12 +155,14 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Build unsigned Release for PR
-        if: github.event_name == 'pull_request'
+      # PR 或者没有配置证书时：自动构建未签名包
+      - name: Build unsigned Release (No Keystore fallback)
+        if: ${{ github.event_name == 'pull_request' || secrets.KEYSTORE_B64 == '' }}
         run: ./gradlew :app:assembleRelease -PallowUnsignedRelease=true --warning-mode all --stacktrace
 
-      - name: Build signed Release for master
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+      # 只有在主分支且配置了证书时：构建签名包
+      - name: Build signed Release for main/master
+        if: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && secrets.KEYSTORE_B64 != '' }}
         run: |
           ./gradlew :app:assembleRelease \
             -PKEYSTORE_FILE=neri.jks \
@@ -168,7 +172,6 @@ jobs:
             --warning-mode all --stacktrace
 
       - name: Upload Release APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/upload-artifact@v4
         with:
           name: neri-apk
@@ -178,7 +181,8 @@ jobs:
     needs:
       - build
     runs-on: ubuntu-latest
-    if: ${{ success() && github.ref == 'refs/heads/master' }}
+    # 只有当配置了 Telegram 相关密钥时才会运行，否则自动跳过
+    if: ${{ success() && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && secrets.TELEGRAM_TOKEN != '' && secrets.TELEGRAM_CHAT_ID != '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
