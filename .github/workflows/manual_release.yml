@@ -14,6 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    # 将 Secrets 导入到 Job 级别 env 中以便 steps.if 条件进行检测
+    env:
+      KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+      KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+      KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,12 +35,10 @@ jobs:
           cache: gradle
 
       - name: Decode keystore
-        if: ${{ secrets.KEYSTORE_B64 != '' }}
+        if: ${{ env.KEYSTORE_B64 != '' }}
         run: |
           mkdir -p app
           echo "$KEYSTORE_B64" | base64 -d > app/neri.jks
-        env:
-          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
 
       - name: Grant execute permission
         run: chmod +x gradlew
@@ -58,20 +61,20 @@ jobs:
 
       # 如果有证书，进行签名打包
       - name: Build signed Release APKs
-        if: ${{ secrets.KEYSTORE_B64 != '' }}
+        if: ${{ env.KEYSTORE_B64 != '' }}
         run: |
           ./gradlew clean assembleRelease \
             -PbuildAllReleaseAbis=true \
             -PbuildVersionTimestamp=${{ steps.meta.outputs.release_time }} \
             -PKEYSTORE_FILE=neri.jks \
-            -PKEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }} \
+            -PKEYSTORE_PASSWORD=$KEYSTORE_PASSWORD \
             -PKEY_ALIAS=key0 \
-            -PKEY_PASSWORD=${{ secrets.KEY_PASSWORD }} \
+            -PKEY_PASSWORD=$KEY_PASSWORD \
             --warning-mode all --stacktrace
 
       # 如果没有证书，自动进行未签名打包
       - name: Build unsigned Release APKs (Fallback)
-        if: ${{ secrets.KEYSTORE_B64 == '' }}
+        if: ${{ env.KEYSTORE_B64 == '' }}
         run: |
           ./gradlew clean assembleRelease \
             -PbuildAllReleaseAbis=true \
